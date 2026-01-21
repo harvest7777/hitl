@@ -23,6 +23,9 @@ def parse_command(state: CustomState):
 def confirm_command(state: CustomState):
     return {"llm_output": "Please confirm the command"}
 
+def execute_command(state: CustomState):
+    return {"llm_output": "freaky mode ON 😈"}
+
 def ask_question(state: CustomState):
     return {"llm_output": "Here is the answer to your question"}
 
@@ -34,11 +37,19 @@ ohhhhhhhhhh so i think the pattern is always intent router node which transforms
 function which returns whch node to route to as a edge next, then conditional edge adding
 """
 def route_intent(state: CustomState):
-    return state.get("intent", "chitchat")
+    intent = state.get("intent", "chitchat")
+    if intent == "command":
+        if not state.get("confirmed_command", False):
+            return "confirm_command"
 
+        if state.get("command_requested_to_execute", None):
+            return "execute_command"
+
+    return intent
 graph = StateGraph(CustomState)
 graph.add_node("classify_intent", classify_intent)
 graph.add_node("command", parse_command)
+graph.add_node("execute_command", execute_command)
 graph.add_node("ask_question", ask_question)
 graph.add_node("confirm_command", confirm_command)
 graph.add_node("chitchat", chitchat)
