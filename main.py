@@ -1,6 +1,6 @@
 from typing import TypedDict
 from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_core.runnables import RunnableConfig
 
 # total = false to tell langgraph it is not fully populated at the start
@@ -97,13 +97,12 @@ workflow.add_edge("cancel_command", END)
 workflow.add_edge("execute_command", END)
 
 
-checkpointer = InMemorySaver()
-graph = workflow.compile(checkpointer=checkpointer)
+with SqliteSaver.from_conn_string("checkpoints.db") as checkpointer:
+    graph = workflow.compile(checkpointer=checkpointer)
 
-config: RunnableConfig = {"configurable": {"thread_id": "1"}}
+    config: RunnableConfig = {"configurable": {"thread_id": "1"}}
 
-
-state_1 = graph.invoke(CustomState(user_input="/"), config)
-print(graph.get_state(config).values)
-print(state_1)
+    state_1 = graph.invoke(CustomState(user_input="/"), config)
+    print(graph.get_state(config).values)
+    print(state_1)
 
