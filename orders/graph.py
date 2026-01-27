@@ -1,5 +1,4 @@
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from orders.state import OrderState
 from orders.routing import classify_intent, route_intent
@@ -12,11 +11,12 @@ from orders.nodes import (
     show_help,
     handle_unknown,
 )
+from orders.checkpointer import checkpointer
 
 
-def create_graph(checkpointer: BaseCheckpointSaver):
+def _build_workflow() -> StateGraph:
     """
-    Build and compile the order workflow graph.
+    Build the order workflow graph (uncompiled).
 
     Graph structure:
         START
@@ -29,9 +29,6 @@ def create_graph(checkpointer: BaseCheckpointSaver):
           |
           v
          END  <-- Graph pauses here, waiting for next user input
-
-    The checkpointer persists state between invocations, allowing
-    the conversation to resume where it left off.
     """
     workflow = StateGraph(OrderState)
 
@@ -86,8 +83,9 @@ def create_graph(checkpointer: BaseCheckpointSaver):
     workflow.add_edge("show_help", END)
     workflow.add_edge("handle_unknown", END)
 
-    # =========================================================================
-    # COMPILE
-    # Compilation validates the graph and attaches the checkpointer
-    # =========================================================================
-    return workflow.compile(checkpointer=checkpointer)
+    return workflow
+
+
+# Build and compile the graph with PostgreSQL checkpointer
+# This graph instance can be imported and used anywhere (FastAPI, CLI, etc.)
+graph = _build_workflow().compile(checkpointer=checkpointer)

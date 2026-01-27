@@ -4,7 +4,6 @@ Food Ordering CLI - Main Entry Point
 Usage:
     python -m orders.main              # Start new conversation
     python -m orders.main --resume ID  # Resume conversation with thread ID
-    python -m orders.main --reset      # Delete checkpoint database
 
 The thread_id pattern:
     - For CLI: We generate a UUID per session, or accept one via --resume
@@ -13,29 +12,14 @@ The thread_id pattern:
 """
 
 import sys
-import os
 import uuid
-from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_core.runnables import RunnableConfig
 
-from orders.graph import create_graph
-from orders.state import OrderState
-
-
-# Database file path - relative to where you run the command
-DB_PATH = "orders/orders.db"
+from orders.graph import graph
+from orders.checkpointer import setup_checkpointer, cleanup_checkpointer
 
 
 def main():
-    # Handle --reset flag
-    if "--reset" in sys.argv:
-        if os.path.exists(DB_PATH):
-            os.remove(DB_PATH)
-            print(f"Deleted {DB_PATH}. Fresh start!")
-        else:
-            print("No database to reset.")
-        return
-
     # Handle --resume flag for continuing a previous conversation
     thread_id = None
     if "--resume" in sys.argv:
@@ -52,10 +36,10 @@ def main():
         print(f"Starting new conversation. Thread ID: {thread_id}")
         print("(Save this ID to resume later with --resume)")
 
-    # Create the graph with SQLite checkpointing
-    with SqliteSaver.from_conn_string(DB_PATH) as checkpointer:
-        graph = create_graph(checkpointer)
+    # Initialize PostgreSQL checkpoint tables (idempotent - safe to call multiple times)
+    setup_checkpointer()
 
+    try:
         # Config ties this invocation to a specific thread/conversation
         # The checkpointer uses thread_id to store and retrieve state
         config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
@@ -105,6 +89,8 @@ def main():
             bot_response = result.get("bot_response", "")
             if bot_response:
                 print(f"\nBot: {bot_response}")
+    finally:
+        cleanup_checkpointer()
 
 
 if __name__ == "__main__":
