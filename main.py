@@ -1,7 +1,25 @@
+import sys
+import os
 from typing import TypedDict
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_core.runnables import RunnableConfig
+
+# ============================================================================
+# PROOF OF CONCEPT: Resuming a LangGraph from SQLite checkpoint
+#
+# Usage:
+#   python main.py          # Run 1: starts graph, pauses at confirmation
+#   python main.py          # Run 2: resumes from checkpoint, confirms command
+#   python main.py --reset  # Delete checkpoint and start fresh
+# ============================================================================
+
+# Helper to reset checkpoint for testing
+if "--reset" in sys.argv:
+    if os.path.exists("checkpoints.db"):
+        os.remove("checkpoints.db")
+        print("Checkpoint deleted. Starting fresh on next run.")
+    sys.exit(0)
 
 # total = false to tell langgraph it is not fully populated at the start
 class CustomState(TypedDict, total=False):
@@ -100,9 +118,41 @@ workflow.add_edge("execute_command", END)
 with SqliteSaver.from_conn_string("checkpoints.db") as checkpointer:
     graph = workflow.compile(checkpointer=checkpointer)
 
+    # thread_id is the key for persisting/resuming state
+    # same thread_id = same conversation, can resume where it left off
     config: RunnableConfig = {"configurable": {"thread_id": "1"}}
 
-    state_1 = graph.invoke(CustomState(user_input="/"), config)
-    print(graph.get_state(config).values)
-    print(state_1)
+    # Check if there's existing state for this thread
+    # This is how you detect if you're resuming vs starting fresh
+    existing_state = graph.get_state(config)
+
+    if existing_state.values:
+        # RESUMING: There's existing state from a previous run
+        # The graph paused at confirm_command waiting for user input
+        print("=== RESUMING FROM CHECKPOINT ===")
+        print(f"Previous state: {existing_state.values}")
+        print(f"Graph paused at: {existing_state.next}")  # shows which node(s) are next
+
+        # To resume, just invoke again with new input
+        # The graph picks up from where it left off (confirm_command node)
+        # and uses the new user_input to make the confirmation decision
+        result = graph.invoke(
+            {"user_input": "yes"},  # user confirms the command
+            config
+        )
+        print(f"Final state after resume: {result}")
+
+    else:
+        # FRESH START: No existing state, start from the beginning
+        print("=== STARTING FRESH ===")
+
+        # This will run: START -> classify_intent -> command -> confirm_command -> END
+        # The graph pauses at END after confirm_command because we haven't confirmed yet
+        result = graph.invoke(
+            {"user_input": "/do_something"},
+            config
+        )
+        print(f"State after first run: {result}")
+        print(f"Graph paused at: {graph.get_state(config).next}")
+        print("\n>>> Run the script again to see it resume from checkpoint! <<<")
 
