@@ -1,5 +1,7 @@
 from typing import TypedDict
 from langgraph.graph import StateGraph, MessagesState, START, END
+from langgraph.checkpoint.memory import InMemorySaver
+from langchain_core.runnables import RunnableConfig
 
 # total = false to tell langgraph it is not fully populated at the start
 class CustomState(TypedDict, total=False):
@@ -58,50 +60,50 @@ def route_confirmation(state: CustomState):
     # we are awaiting confirmation
     return END
 
-graph = StateGraph(CustomState)
+workflow = StateGraph(CustomState)
 
-graph.add_node("classify_intent", classify_intent)
-graph.add_node("command", parse_command)
-graph.add_node("execute_command", execute_command)
-graph.add_node("cancel_command", cancel_command)
-graph.add_node("ask_question", ask_question)
-graph.add_node("confirm_command", confirm_command)
-graph.add_node("chitchat", chitchat)
+workflow.add_node("classify_intent", classify_intent)
+workflow.add_node("command", parse_command)
+workflow.add_node("execute_command", execute_command)
+workflow.add_node("cancel_command", cancel_command)
+workflow.add_node("ask_question", ask_question)
+workflow.add_node("confirm_command", confirm_command)
+workflow.add_node("chitchat", chitchat)
 
-graph.add_edge(START, "classify_intent")
+workflow.add_edge(START, "classify_intent")
 
-graph.add_conditional_edges("classify_intent", route_intent, {
+workflow.add_conditional_edges("classify_intent", route_intent, {
     "command": "command",
     "ask_question": "ask_question",
     "chitchat": "chitchat"
 })
 
-graph.add_edge("command", "confirm_command")
+workflow.add_edge("command", "confirm_command")
 
 """
 You want conditional edges from the node that just produced the information needed to decide.
 thats whyw e do conditional edges for all command stuff from the command ndoe
 """
-graph.add_conditional_edges("confirm_command", route_confirmation, {
+workflow.add_conditional_edges("confirm_command", route_confirmation, {
     "cancel_command": "cancel_command",
     "execute_command": "execute_command",
     END: END
 })
 
-graph.add_edge("ask_question", END)
-graph.add_edge("command", "confirm_command")
-graph.add_edge("chitchat", END)
-graph.add_edge("cancel_command", END)
-graph.add_edge("execute_command", END)
-graph = graph.compile()
+workflow.add_edge("ask_question", END)
+workflow.add_edge("command", "confirm_command")
+workflow.add_edge("chitchat", END)
+workflow.add_edge("cancel_command", END)
+workflow.add_edge("execute_command", END)
 
 
-state_1 = graph.invoke(CustomState(user_input="/"))
+checkpointer = InMemorySaver()
+graph = workflow.compile(checkpointer=checkpointer)
+
+config: RunnableConfig = {"configurable": {"thread_id": "1"}}
+
+
+state_1 = graph.invoke(CustomState(user_input="/"), config)
+print(graph.get_state(config).values)
 print(state_1)
 
-state_2 = {
-    **state_1,
-    "user_input": "yes"
-}
-final = graph.invoke(state_2)
-print(final)
