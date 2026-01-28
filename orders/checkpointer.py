@@ -7,6 +7,7 @@ Provides a globally-accessible checkpointer that can be used anywhere
 
 import os
 from dotenv import load_dotenv
+from psycopg import Connection
 from psycopg_pool import ConnectionPool
 from langgraph.checkpoint.postgres import PostgresSaver
 
@@ -22,25 +23,24 @@ if not POSTGRES_CONNECTION_STRING:
         "Please add it to your .env file."
     )
 
-# Create a connection pool for efficient connection reuse
-# This pool is shared across all graph invocations
-_pool = ConnectionPool(
-    conninfo=POSTGRES_CONNECTION_STRING,
-    min_size=1,
-    max_size=10,
-    open=True,
-)
+# Create a connection pool for concurrent access
+_pool = ConnectionPool(conninfo=POSTGRES_CONNECTION_STRING)
 
-# Create the checkpointer using the connection pool
-checkpointer = PostgresSaver(pool=_pool)
+# Create the checkpointer using the pool
+checkpointer = PostgresSaver(conn=_pool)
 
 
 def setup_checkpointer():
     """
     Initialize the checkpoint tables in PostgreSQL.
     Call this once at application startup (e.g., in FastAPI lifespan).
+
+    Uses a separate autocommit connection because CREATE INDEX CONCURRENTLY
+    cannot run inside a transaction block.
     """
-    checkpointer.setup()
+    with Connection.connect(POSTGRES_CONNECTION_STRING, autocommit=True) as conn:
+        temp_saver = PostgresSaver(conn=conn)
+        temp_saver.setup()
 
 
 def cleanup_checkpointer():
